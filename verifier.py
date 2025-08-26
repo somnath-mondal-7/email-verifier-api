@@ -83,7 +83,7 @@ async def smtp_check(
             continue
     return None
 
-async def is_catch_all(domain: str, mx_hosts: List[str], timeout: float = 12.0) -> Optional[bool]:
+async def is_catch_all(domain: str, mx_hosts: List[str], timeout: float = 20.0) -> Optional[bool]:
     """
     Probe multiple random addresses across up to two MX hosts.
     True  -> at least one RCPT accepted
