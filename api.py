@@ -1,36 +1,28 @@
 # api.py
-import os
-from typing import Optional, List
-from fastapi import FastAPI, Query, Depends, Header, HTTPException
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
+import os, asyncio
 from verifier import verify_email_address
 
-app = FastAPI(title="Email Verifier API", version="0.2.0")
+# read concurrency + timeout from env (with defaults)
+CONCURRENCY = int(os.getenv("CONCURRENCY", "50"))
+SMTP_TIMEOUT = float(os.getenv("SMTP_TIMEOUT", "3"))
 
-@app.get("/health")
-def health():
-    return {"ok": True}
+app = FastAPI(title="Email Verifier API", version="0.1.0")
 
-_ALLOWED = {k.strip() for k in os.getenv("API_KEYS", "").split(",") if k.strip()}
-
-def require_api_key(
-    x_api_key: Optional[str] = Header(default=None, alias="X-Api-Key"),
-    key: Optional[str] = Query(default=None),
-):
-    if not _ALLOWED:
-        raise HTTPException(status_code=503, detail="API key not configured on server")
-    supplied = x_api_key or key
-    if not supplied or supplied not in _ALLOWED:
-        raise HTTPException(status_code=401, detail="Missing/invalid API key")
-    return True
-
-@app.get("/verify", dependencies=[Depends(require_api_key)])
-async def verify(email: str = Query(..., description="email to verify")):
-    result = await verify_email_address(email)
-    return JSONResponse(result)
-
-@app.post("/verify-batch", dependencies=[Depends(require_api_key)])
+@app.post("/verify-batch")
 async def verify_batch(payload: dict):
-    emails: List[str] = [e for e in payload.get("emails", []) if isinstance(e, str)]
-    results = [await verify_email_address(e) for e in emails]
+    emails = payload.get("emails", [])
+    emails = [e for e in emails if isinstance(e, str)]
+
+    sem = asyncio.Semaphore(CONCURRENCY)
+
+    async def one(e):
+        async with sem:
+            try:
+                return await asyncio.wait_for(verify_email_address(e), timeout=SMTP_TIMEOUT + 1.0)
+            except asyncio.TimeoutError:
+                return {"input": e, "deliverable": False, "smtp_accepts": None, "is_catch_all": None, "reason": ["timeout"]}
+
+    results = await asyncio.gather(*(one(e) for e in emails))
     return JSONResponse({"results": results})
