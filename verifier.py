@@ -41,7 +41,7 @@ async def smtp_check(
     rcpt: str,
     mx_host: str,
     helo_domain: str = "example.com",
-    timeout: float = 6.0
+    timeout: float = 3.0
 ) -> Optional[bool]:
     """
     Return:
@@ -108,6 +108,9 @@ async def is_catch_all(domain: str, mx_hosts: List[str], timeout: float = 20.0) 
 
 def is_role_account(local: str) -> bool:
     return local.lower() in ROLE_PREFIXES
+    # 5) Catch-all probe (only if not disposable and we have MX)
+
+
 
 # ----------------- main verifier -----------------
 
@@ -165,8 +168,15 @@ async def verify_email_address(email: str) -> Dict:
     result["smtp_accepts"] = smtp_signal
 
     # 5) Catch-all probe (only if not disposable and we have MX)
-    if not result["is_disposable"] and hosts:
-        result["is_catch_all"] = await is_catch_all(domain, hosts, timeout=12.0)
+    # 5) Catch-all probe (only if not disposable and we have MX)
+if not result["is_disposable"] and hosts:
+    ca = await is_catch_all(domain, hosts, timeout=12.0)
+    result["is_catch_all"] = ca            # store result
+    if ca is True:                         # if catch-all
+        result["reason"].append("catch_all")
+        if result["smtp_accepts"] is not True:
+            result["smtp_accepts"] = True
+)
 
     # Final decision (simple rule set)
     deliverable = (
